@@ -6396,18 +6396,16 @@ setInterval(()=>{const screen=document.getElementById('screen-my-reports');if(sc
       <div class="card management-menu">
         <p id="managementCity"></p>
         <button class="btn main-btn" type="button" onclick="openCityTable()">📋 Таблица</button>
-        <button class="btn main-btn" id="iiAdminReturns" type="button" onclick="openReturnsTable()">📥 Возврат оборудования</button>
-        <button class="btn main-btn" id="ufFrontMenuButton" type="button" onclick="ufOpenFrontSetup()">⚙️ Настройка участка · по этапам</button>
         <button class="btn main-btn" type="button" onclick="openRefarb(true)">🛠️ Рефарб оборудования</button>
         <button class="btn main-btn" type="button" onclick="openWorkingSchedule()">📅 Рабочий график</button>
         <button class="btn main-btn" type="button" onclick="openPayrollManagement()">💰 Зарплата</button>
         <button class="btn main-btn" id="managementDebtsBtn" type="button" onclick="openCityDebtPreview()">📋 Долги по актам</button>
         <button class="btn main-btn" type="button" onclick="openAdminTools('archive')">📑 Архивация</button>
-        <button class="btn main-btn" id="iiTeamsOpenBtn" type="button" onclick="iiTeamsOpen()">👥 Управление бригадами</button>
         <button class="btn main-btn" type="button" onclick="openStaffBoard()">📊 Показатели сотрудников</button>
         <button class="btn main-btn" type="button" onclick="openAdminTools('themes')">📈 Построить график</button>
         <button class="btn main-btn" type="button" onclick="openManagementEvent()">📣 Собрание</button>
-        <button class="btn main-btn" type="button" onclick="openAdminEmployees()">👥 Сотрудники</button>
+        <button class="btn main-btn" type="button" onclick="iiStaffHubOpen()">👥 Сотрудники</button>
+        <button class="btn main-btn" id="ufFrontMenuButton" type="button" onclick="ufOpenFrontSetup()">⚙️ Настройка участка · по этапам</button>
         <div id="managementStatus" class="management-status" role="status" aria-live="polite"></div>
         <button class="btn main-btn" id="managementDeliveryReopen" type="button" hidden onclick="openManagementDelivery()">📨 Статус рассылки</button>
         <div class="common-nav-row">
@@ -15247,6 +15245,16 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 </script>
 
 
+<!-- Единый раздел персонала: выбор из двух операций -->
+<div id="screen-ii-staff-hub" class="app-screen uniform-screen">
+  <h2>👥 Сотрудники</h2>
+  <div class="card management-menu" style="max-width:850px;margin:auto">
+    <button class="btn main-btn" type="button" onclick="openAdminEmployees()">👤 Список сотрудников</button>
+    <button class="btn main-btn" type="button" onclick="iiTeamsOpen()">👥 Управление бригадами</button>
+    <div class="common-nav-row"><button class="btn danger-btn" type="button" onclick="openAdminPanel()">🔙 Админ-панель</button></div>
+  </div>
+</div>
+<script>function iiStaffHubOpen(){switchScreen('screen-ii-staff-hub');}</script>
 <!-- INTERNET INSTALLER: назначение бригад. На сервер отправляются UUID, не ФИО. -->
 <div id="screen-ii-teams" class="app-screen uniform-screen">
   <h2>👥 Управление бригадами</h2>
@@ -15255,7 +15263,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
     <div id="iiTeamsStatus" role="status" aria-live="polite"></div>
     <button class="btn main-btn" type="button" onclick="iiTeamsLoad()">🔄 Обновить сотрудников и бригады</button>
     <div id="iiTeamsContent"></div>
-    <div class="common-nav-row"><button class="btn danger-btn" type="button" onclick="openAdminPanel()">🔙 Админ-панель</button></div>
+    <div class="common-nav-row"><button class="btn danger-btn" type="button" onclick="iiStaffHubOpen()">🔙 Сотрудники</button></div>
   </div>
 </div>
 <style>
@@ -15282,7 +15290,13 @@ async function call(action,fields={}){
  const request=typeof districtFetch==='function'?districtFetch:fetch;
  const response=await request(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...actor(),action,...fields})});
  if(!response.ok)throw Error('Сервер сотрудников: HTTP '+response.status);
- const data=await response.json();if(!data||data.status!=='ok')throw Error(data?.message||'Не удалось выполнить '+action);return data;
+ const data=await response.json();
+ if(!data||data.status!=='ok'){
+   const msg=String(data?.message||'Не удалось выполнить '+action);
+   if(/unknown action|invalid action/i.test(msg))throw Error('Центральный сервер сотрудников не поддерживает команду «'+action+'». Проверь развертывание именно проекта «Список сотрудников»: после сохранения кода нужно «Развернуть → Управление развертываниями → Изменить → Новая версия → Развернуть». До обновления сервера бригады загружать и сохранять нельзя.');
+   throw Error(msg);
+ }
+ return data;
 }
 window.iiTeamsOpen=async function(){try{actor();switchScreen('screen-ii-teams');await window.iiTeamsLoad();}catch(e){status(e.message,true);if(!$('screen-ii-teams')?.classList.contains('active'))alert(e.message);}};
 window.iiTeamsLoad=async function(){if(busy)return;busy=true;status('Загружаем сотрудников…');$('iiTeamsContent').innerHTML='';try{
@@ -15298,7 +15312,7 @@ window.iiTeamsLoad=async function(){if(busy)return;busy=true;status('Загру�
    html+='<label class="ii-team-person"><input type="checkbox" data-person="'+esc(p.id)+'" '+(assigned===boss.id?'checked ':'')+(other?'disabled ':'')+'><span>'+esc(p.fullName)+(other?' — уже назначен другой бригаде':'')+'</span></label>';});
   html+='<button type="button" class="btn main-btn" data-save-team="'+esc(boss.id)+'">Сохранить состав с 1-го числа следующего месяца</button></section>';
  });
- html+='<p><strong>Важно:</strong> это назначение в центральном справочнике. Заполнение «Подсчёта часов» и «Графика» требует отдельной синхронизации; здесь оно не запускается.</p>';
+ html+='<p><strong>Синхронизация:</strong> сейчас состав сохраняется только в центральном справочнике. Автоматический перенос в «Подсчёт часов» и «График» не подключён. Это ещё не окончательная реализация задания.</p>';
  $('iiTeamsContent').innerHTML=html;
  $('iiTeamsContent').querySelectorAll('[data-save-team]').forEach(button=>button.addEventListener('click',()=>window.iiTeamsSave(button.dataset.saveTeam)));
  status('Справочник загружен. Проверяй состав перед сохранением.');
