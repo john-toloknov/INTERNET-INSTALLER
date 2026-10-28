@@ -6403,6 +6403,7 @@ setInterval(()=>{const screen=document.getElementById('screen-my-reports');if(sc
         <button class="btn main-btn" type="button" onclick="openPayrollManagement()">💰 Зарплата</button>
         <button class="btn main-btn" id="managementDebtsBtn" type="button" onclick="openCityDebtPreview()">📋 Долги по актам</button>
         <button class="btn main-btn" type="button" onclick="openAdminTools('archive')">📑 Архивация</button>
+        <button class="btn main-btn" id="iiTeamsOpenBtn" type="button" onclick="iiTeamsOpen()">👥 Управление бригадами</button>
         <button class="btn main-btn" type="button" onclick="openStaffBoard()">📊 Показатели сотрудников</button>
         <button class="btn main-btn" type="button" onclick="openAdminTools('themes')">📈 Построить график</button>
         <button class="btn main-btn" type="button" onclick="openManagementEvent()">📣 Собрание</button>
@@ -15243,6 +15244,74 @@ function initPersistentAppNavigation(){
  sync();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initPersistentAppNavigation);else initPersistentAppNavigation();
+</script>
+
+
+<!-- INTERNET INSTALLER: назначение бригад. На сервер отправляются UUID, не ФИО. -->
+<div id="screen-ii-teams" class="app-screen uniform-screen">
+  <h2>👥 Управление бригадами</h2>
+  <div class="card" style="max-width:850px;margin:auto">
+    <p>Состав вступает в силу <strong>с первого числа следующего месяца</strong>. Изменение бригады не переписывает прошлые графики.</p>
+    <div id="iiTeamsStatus" role="status" aria-live="polite"></div>
+    <button class="btn main-btn" type="button" onclick="iiTeamsLoad()">🔄 Обновить сотрудников и бригады</button>
+    <div id="iiTeamsContent"></div>
+    <div class="common-nav-row"><button class="btn danger-btn" type="button" onclick="openAdminPanel()">🔙 Админ-панель</button></div>
+  </div>
+</div>
+<style>
+ #screen-ii-teams .ii-team-person{display:flex;align-items:flex-start;gap:9px;padding:9px 4px;border-bottom:1px solid var(--border-color,#7773)}
+ #screen-ii-teams .ii-team-person input{margin-top:4px;flex-shrink:0}
+ #screen-ii-teams .ii-team-person span{overflow-wrap:anywhere}
+ #screen-ii-teams .ii-team-panel{padding:14px;margin:14px 0;border:1px solid var(--border-color,#8885);border-radius:12px}
+ #screen-ii-teams .ii-team-status{margin:8px 0}
+</style>
+<script>
+(function(){
+'use strict';
+let state=null, busy=false;
+const $=id=>document.getElementById(id);
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function status(message,isError){const e=$('iiTeamsStatus');if(e){e.textContent=message;e.style.color=isError?'#b93838':'';}}
+function actor(){const u=window.currentUser ?? (typeof currentUser!=='undefined'?currentUser:null);
+ if(!u||!['Владелец','Супервайзер','Старший Техник'].includes(String(u.role||'')))throw Error('Для управления бригадами требуется вход руководителя');
+ if(!u.city||!u.district||!u.dwLogin||!u.password)throw Error('Отсутствуют данные текущего сеанса. Войдите заново');
+ return {city:u.city,district:u.district,actorLogin:u.dwLogin,actorPassword:u.password};}
+async function call(action,fields={}){
+ const url=typeof GLOBAL_AUTH_SALARY_URL!=='undefined'?GLOBAL_AUTH_SALARY_URL:'';
+ if(!/^https:\/\//.test(url))throw Error('Не задан адрес центрального справочника сотрудников');
+ const request=typeof districtFetch==='function'?districtFetch:fetch;
+ const response=await request(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...actor(),action,...fields})});
+ if(!response.ok)throw Error('Сервер сотрудников: HTTP '+response.status);
+ const data=await response.json();if(!data||data.status!=='ok')throw Error(data?.message||'Не удалось выполнить '+action);return data;
+}
+window.iiTeamsOpen=async function(){try{actor();switchScreen('screen-ii-teams');await window.iiTeamsLoad();}catch(e){status(e.message,true);if(!$('screen-ii-teams')?.classList.contains('active'))alert(e.message);}};
+window.iiTeamsLoad=async function(){if(busy)return;busy=true;status('Загружаем сотрудников…');$('iiTeamsContent').innerHTML='';try{
+ const data=await call('getBrigades');
+ if(!Array.isArray(data.employees))throw Error('Неверный ответ справочника');
+ state=data;const people=data.employees, bosses=people.filter(x=>x.role==='Бригадир'),techs=people.filter(x=>x.role==='Техник-Универсал');
+ const next=String(data.month||'');
+ let html='<p>Месяц назначения: <strong>'+esc(next)+'</strong>. Бригадиров: '+bosses.length+'; техников: '+techs.length+'.</p>';
+ if(!bosses.length)html+='<p>Бригадиры в справочнике отсутствуют. Зарегистрируйте сотрудников с нужной ролью.</p>';
+ bosses.forEach((boss,i)=>{
+  html+='<section class="ii-team-panel" data-boss="'+esc(boss.id)+'"><h3>'+esc(boss.fullName)+'</h3><p>Выберите подчинённых техников:</p>';
+  techs.forEach((p,j)=>{const assigned=p.brigadierId||'',other=assigned&&assigned!==boss.id;
+   html+='<label class="ii-team-person"><input type="checkbox" data-person="'+esc(p.id)+'" '+(assigned===boss.id?'checked ':'')+(other?'disabled ':'')+'><span>'+esc(p.fullName)+(other?' — уже назначен другой бригаде':'')+'</span></label>';});
+  html+='<button type="button" class="btn main-btn" data-save-team="'+esc(boss.id)+'">Сохранить состав с 1-го числа следующего месяца</button></section>';
+ });
+ html+='<p><strong>Важно:</strong> это назначение в центральном справочнике. Заполнение «Подсчёта часов» и «Графика» требует отдельной синхронизации; здесь оно не запускается.</p>';
+ $('iiTeamsContent').innerHTML=html;
+ $('iiTeamsContent').querySelectorAll('[data-save-team]').forEach(button=>button.addEventListener('click',()=>window.iiTeamsSave(button.dataset.saveTeam)));
+ status('Справочник загружен. Проверяй состав перед сохранением.');
+ }catch(e){status(e.message,true);}finally{busy=false;}};
+window.iiTeamsSave=async function(bossId){if(busy||!state)return;const section=Array.from($('iiTeamsContent').querySelectorAll('[data-boss]')).find(e=>e.dataset.boss===bossId);if(!section)return;
+ const ids=Array.from(section.querySelectorAll('input[data-person]:checked')).map(e=>e.dataset.person);
+ if(!ids.length){status('Выбери хотя бы одного техника. Пустой список нельзя записать.',true);return;}
+ if(!confirm('Назначить '+ids.length+' техников на следующий месяц? Запись создаст новый состав бригады.'))return;
+ busy=true;status('Сохраняем назначение…');try{const data=await call('setBrigade',{brigadierUuid:bossId,technicianUuids:ids,effectiveMonth:state.month});status('Сохранено: '+data.assigned+' техников. Применяется с '+data.month+'.');
+ }catch(e){status(e.message,true);}finally{busy=false;}
+ // Не перечитываем автоматически: оставляем сообщение результата на экране.
+};
+})();
 </script>
 
 </body>
